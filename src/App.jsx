@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import {
+  LineChart, Line,
   BarChart, Bar,
-  ComposedChart, Area, Line,
+  ComposedChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, ReferenceLine,
 } from "recharts";
@@ -18,7 +19,8 @@ const BORDER     = "rgba(255,255,255,0.07)";
 const SURFACE    = "#111827";
 const BG         = "#0a0f1e";
 
-// Day-of-week averages calculated from full Simplecast CSV (2019-06-13 → 2026-05-08)
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
 const DOW_DATA = [
   { day: "Mon", avg: 73 },
   { day: "Tue", avg: 68 },
@@ -43,7 +45,7 @@ function parseCSV(text) {
   const lines = text.trim().split("\n").slice(1);
   return lines
     .map((line) => {
-      const [pct, total, date] = line.split(",");
+      const [, total, date] = line.split(",");
       return { date: date?.trim(), total: parseInt(total, 10) || 0 };
     })
     .filter((d) => d.date && !isNaN(d.total));
@@ -54,7 +56,7 @@ function subDays(n) {
 }
 
 function fmtDate(iso) {
-  const [y, m, d] = iso.split("-");
+  const [, m, d] = iso.split("-");
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${months[parseInt(m,10)-1]} ${parseInt(d,10)}`;
 }
@@ -65,23 +67,24 @@ function fmtMonth(ym) {
   return `${months[parseInt(m,10)-1]} '${y.slice(2)}`;
 }
 
-function delta(curr, prev) {
+function calcDelta(curr, prev) {
   if (!prev) return null;
   const pct = ((curr - prev) / prev * 100).toFixed(1);
   return Number(pct) >= 0 ? `+${pct}%` : `${pct}%`;
 }
 
-function KpiCard({ label, source, value, accent, large, sub, delta: d, deltaSub, extra }) {
-  const isPos = d && d.startsWith("+");
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+function KpiCard({ label, source, value, accent, large, sub, delta, deltaSub, extra }) {
+  const isPos = delta && delta.startsWith("+");
   return (
     <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: accent || PURPLE, borderRadius: "12px 12px 0 0" }} />
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase", marginBottom: 8 }}>{source}</div>
       <div style={{ fontSize: 13, color: "#a0aab4", marginBottom: 6 }}>{label}</div>
       <div style={{ fontFamily: "'Playfair Display', serif", fontSize: large ? 48 : 36, fontWeight: 700, color: "#f0f6fc", lineHeight: 1, marginBottom: 8 }}>{value}</div>
-      {d && (
+      {delta && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: isPos ? GREEN : RED }}>{d}</span>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: isPos ? GREEN : RED }}>{delta}</span>
           {deltaSub && <span style={{ fontSize: 11, color: MUTED }}>{deltaSub}</span>}
         </div>
       )}
@@ -91,22 +94,65 @@ function KpiCard({ label, source, value, accent, large, sub, delta: d, deltaSub,
   );
 }
 
+// ── YoY month cards (5 cards, Jan–May) ───────────────────────────────────────
+function YoyCards() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
+      {YOY.map((row) => {
+        const isPartial = row.month === "May";
+        const d = calcDelta(row.y2026, row.y2025);
+        const isPos = d && d.startsWith("+");
+        return (
+          <div key={row.month} style={{ background: "#0d1424", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: GOLD, borderRadius: "12px 12px 0 0" }} />
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase", marginBottom: 6 }}>
+              {row.month}{isPartial ? <sup style={{ fontSize: 8, marginLeft: 2 }}>*</sup> : ""}
+            </div>
+            <div style={{ fontSize: 11, color: "#a0aab4", marginBottom: 6 }}>2026</div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 38, fontWeight: 700, color: GOLD, lineHeight: 1, marginBottom: 8 }}>
+              {row.y2026.toLocaleString()}
+            </div>
+            {d && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 10 }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: isPos ? GREEN : RED }}>{d}</span>
+                <span style={{ fontSize: 11, color: MUTED }}>vs 2025</span>
+              </div>
+            )}
+            <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: BLUE }}>2025</span>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: BLUE }}>{row.y2025.toLocaleString()}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: GRAY }}>2024</span>
+                <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: GRAY }}>{row.y2024.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: "#1a2235", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px" }}>
       <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>{label}</div>
-      {payload.map((p, i) => (
+      {payload.map((p, i) =>
         p.value != null && (
           <div key={i} style={{ fontSize: 13, color: p.color || PURPLE, marginBottom: 2 }}>
             {p.name}: <strong>{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
           </div>
         )
-      ))}
+      )}
     </div>
   );
 }
 
+// ── Clock ─────────────────────────────────────────────────────────────────────
 function Clock() {
   const [t, setT] = useState(new Date());
   useEffect(() => { const id = setInterval(() => setT(new Date()), 1000); return () => clearInterval(id); }, []);
@@ -125,81 +171,16 @@ function Spinner() {
   );
 }
 
-// YoY number table replacing the grouped bar chart
-function YoyTable() {
-  const months = YOY.map(r => r.month);
-  const years  = ["y2024", "y2025", "y2026"];
-  const labels = { y2024: "2024", y2025: "2025", y2026: "2026" };
-  const colors = { y2024: GRAY, y2025: BLUE, y2026: GOLD };
-
-  const cellStyle = (val, row) => {
-    const rowVals = years.map(y => row[y] ?? 0);
-    const max = Math.max(...rowVals);
-    const isBest = val === max;
-    return {
-      fontFamily: "'DM Mono', monospace",
-      fontSize: 13,
-      fontWeight: isBest ? 700 : 400,
-      color: isBest ? "#f0f6fc" : MUTED,
-      textAlign: "right",
-      padding: "9px 16px",
-    };
-  };
-
-  const yoyPct = (curr, prev) => {
-    if (!prev) return "—";
-    const pct = ((curr - prev) / prev * 100).toFixed(1);
-    const pos = Number(pct) >= 0;
-    return <span style={{ color: pos ? GREEN : RED, fontSize: 11 }}>{pos ? "+" : ""}{pct}%</span>;
-  };
-
-  const headerCell = { fontFamily: "'DM Mono', monospace", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "8px 16px", textAlign: "right", color: MUTED };
-  const monthCell  = { fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#a0aab4", padding: "9px 16px", textAlign: "left" };
-  const dividerRow = { borderTop: `1px solid ${BORDER}` };
-
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <thead>
-        <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-          <th style={{ ...headerCell, textAlign: "left" }}>Month</th>
-          {years.map(y => (
-            <th key={y} style={{ ...headerCell, color: colors[y] }}>{labels[y]}</th>
-          ))}
-          <th style={{ ...headerCell }}>26 vs 25</th>
-        </tr>
-      </thead>
-      <tbody>
-        {YOY.map((row) => (
-          <tr key={row.month} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-            <td style={monthCell}>{row.month}{row.month === "May" ? <sup style={{ fontSize: 9, color: MUTED, marginLeft: 2 }}>*</sup> : ""}</td>
-            {years.map(y => (
-              <td key={y} style={cellStyle(row[y] ?? 0, row)}>
-                {row[y] != null ? row[y].toLocaleString() : "—"}
-              </td>
-            ))}
-            <td style={{ ...headerCell, textAlign: "right", padding: "9px 16px" }}>
-              {yoyPct(row.y2026, row.y2025)}
-            </td>
-          </tr>
-        ))}
-        <tr style={dividerRow}>
-          <td style={{ ...monthCell, fontWeight: 600, color: "#f0f6fc", paddingTop: 12 }}>Total</td>
-          {years.map(y => (
-            <td key={y} style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: colors[y], textAlign: "right", padding: "12px 16px" }}>
-              {YOY_TOTALS[y].toLocaleString()}
-            </td>
-          ))}
-          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, textAlign: "right", padding: "12px 16px" }}>
-            {yoyPct(YOY_TOTALS.y2026, YOY_TOTALS.y2025)}
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  );
+// ── DOW custom dot (highlights Wednesday) ─────────────────────────────────────
+function DowDot(props) {
+  const { cx, cy, payload } = props;
+  const isWed = payload?.day === "Wed";
+  return <circle cx={cx} cy={cy} r={isWed ? 7 : 4} fill={isWed ? GOLD : PURPLE} stroke={BG} strokeWidth={2} />;
 }
 
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [rows, setRows] = useState(null);
+  const [rows, setRows]   = useState(null);
   const [error, setError] = useState(null);
   const [range, setRange] = useState(90);
 
@@ -212,39 +193,31 @@ export default function App() {
 
   const stats = useMemo(() => {
     if (!rows) return null;
-
-    const d7   = subDays(7);
-    const d14  = subDays(14);
-    const d30  = subDays(30);
-    const d60  = subDays(60);
+    const d7  = subDays(7);
+    const d14 = subDays(14);
+    const d30 = subDays(30);
+    const d60 = subDays(60);
 
     const allTotal = rows.reduce((s, r) => s + r.total, 0);
-
-    const total30 = rows.filter(r => r.date >= d30).reduce((s, r) => s + r.total, 0);
-    const prev30  = rows.filter(r => r.date >= d60 && r.date < d30).reduce((s, r) => s + r.total, 0);
-
-    const total7  = rows.filter(r => r.date >= d7).reduce((s, r) => s + r.total, 0);
-    const prev7   = rows.filter(r => r.date >= d14 && r.date < d7).reduce((s, r) => s + r.total, 0);
-
-    const peak   = rows.reduce((best, r) => r.total > best.total ? r : best, { total: 0, date: "" });
-    const bottom = rows.filter(r => r.total > 0).reduce((low, r) => r.total < low.total ? r : low, { total: Infinity, date: "" });
-
-    const lastDate  = rows[rows.length - 1]?.date || "";
-    const firstDate = rows[0]?.date || "";
+    const total30  = rows.filter(r => r.date >= d30).reduce((s, r) => s + r.total, 0);
+    const prev30   = rows.filter(r => r.date >= d60 && r.date < d30).reduce((s, r) => s + r.total, 0);
+    const total7   = rows.filter(r => r.date >= d7).reduce((s, r) => s + r.total, 0);
+    const prev7    = rows.filter(r => r.date >= d14 && r.date < d7).reduce((s, r) => s + r.total, 0);
+    const peak     = rows.reduce((b, r) => r.total > b.total ? r : b, { total: 0, date: "" });
+    const bottom   = rows.filter(r => r.total > 0).reduce((b, r) => r.total < b.total ? r : b, { total: Infinity, date: "" });
 
     return {
       allTotal,
-      total30, prev30, delta30: delta(total30, prev30),
-      total7,  prev7,  delta7:  delta(total7, prev7),
+      total30, prev30, delta30: calcDelta(total30, prev30),
+      total7,  prev7,  delta7:  calcDelta(total7, prev7),
       peak, bottom,
-      lastDate, firstDate,
+      lastDate:  rows[rows.length - 1]?.date || "",
+      firstDate: rows[0]?.date || "",
     };
   }, [rows]);
 
-  // For the daily chart: include rolling avg when range is 30 or 90
   const chartData = useMemo(() => {
     if (!rows) return [];
-
     const rollWindow = range === 30 ? 60 : range === 90 ? 120 : null;
     const cutoff     = range === 9999 ? "0000-00-00" : subDays(range);
     const visible    = rows.filter(r => r.date >= cutoff);
@@ -252,12 +225,12 @@ export default function App() {
     return visible.map((r) => {
       let rolling = null;
       if (rollWindow) {
-        const origIdx = rows.findIndex(row => row.date === r.date);
-        const start   = Math.max(0, origIdx - rollWindow + 1);
-        const win     = rows.slice(start, origIdx + 1);
+        const idx   = rows.findIndex(row => row.date === r.date);
+        const start = Math.max(0, idx - rollWindow + 1);
+        const win   = rows.slice(start, idx + 1);
         rolling = Math.round(win.reduce((s, w) => s + w.total, 0) / win.length);
       }
-      return { date: fmtDate(r.date), downloads: r.total, rolling };
+      return { date: fmtDate(r.date), rawDate: r.date, downloads: r.total, rolling };
     });
   }, [rows, range]);
 
@@ -284,6 +257,18 @@ export default function App() {
 
   const showRolling = range === 30 || range === 90;
   const rollLabel   = range === 30 ? "60d avg" : "120d avg";
+
+  // Custom XAxis tick showing weekday + date on two lines
+  const renderDayTick = ({ x, y, payload, index }) => {
+    const entry = chartData[index];
+    const dow   = entry?.rawDate ? DAYS[new Date(entry.rawDate).getDay()] : "";
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text textAnchor="middle" fill={MUTED} fontSize={9} fontFamily="'DM Mono', monospace" y={10}>{dow}</text>
+        <text textAnchor="middle" fill={MUTED} fontSize={9} y={22}>{payload.value}</text>
+      </g>
+    );
+  };
 
   if (error) return (
     <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
@@ -335,7 +320,7 @@ export default function App() {
       {!stats ? <Spinner /> : (
         <div style={{ padding: "24px 28px", maxWidth: 1600, margin: "0 auto" }}>
 
-          {/* KPI ROW — 5 cards */}
+          {/* KPI ROW */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
             <KpiCard
               source="Simplecast · All Time"
@@ -388,7 +373,7 @@ export default function App() {
             />
           </div>
 
-          {/* DAILY CHART — ComposedChart with optional rolling avg */}
+          {/* DAILY CHART — weekday ticks + optional rolling avg */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 24 }}>
@@ -397,7 +382,7 @@ export default function App() {
                   <div style={{ fontSize: 11, color: MUTED }}>Simplecast Analytics · {range === 9999 ? "All time" : `Last ${range} days`}</div>
                 </div>
                 {showRolling && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, fontSize: 11, color: MUTED }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, fontSize: 11, color: MUTED }}>
                     <span style={{ display: "inline-block", width: 20, height: 2, borderTop: `2px dashed ${GOLD}` }} />
                     {rollLabel} rolling avg
                   </div>
@@ -411,7 +396,7 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="dlGrad" x1="0" y1="0" x2="0" y2="1">
@@ -422,7 +407,8 @@ export default function App() {
                 <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: MUTED, fontSize: 10 }}
+                  tick={renderDayTick}
+                  height={36}
                   axisLine={false}
                   tickLine={false}
                   interval={Math.max(0, Math.floor(chartData.length / 10) - 1)}
@@ -512,37 +498,48 @@ export default function App() {
             </div>
           </div>
 
-          {/* YOY NUMBER TABLE */}
+          {/* YOY — KPI-style month cards */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through May</div>
               <div style={{ fontSize: 11, color: MUTED }}>2024 · 2025 · 2026 · Simplecast Analytics</div>
             </div>
-            <YoyTable />
-            <div style={{ marginTop: 12, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
-              * May 2026 partial (8 days) · Bold = highest for that month
+            <YoyCards />
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
+                * May 2026 partial (8 days)
+              </div>
+              <div style={{ display: "flex", gap: 20, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>
+                <span style={{ color: GRAY }}>2024 total: {YOY_TOTALS.y2024.toLocaleString()}</span>
+                <span style={{ color: BLUE }}>2025 total: {YOY_TOTALS.y2025.toLocaleString()}</span>
+                <span style={{ color: GOLD }}>2026 YTD: {YOY_TOTALS.y2026.toLocaleString()}</span>
+              </div>
             </div>
           </div>
 
-          {/* DAY-OF-WEEK CHART */}
+          {/* DOW — line chart */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px" }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Average Downloads by Day of Week</div>
             <div style={{ fontSize: 11, color: MUTED, marginBottom: 16 }}>All-time average · Calculated from full Simplecast daily export</div>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={DOW_DATA} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="35%">
+              <LineChart data={DOW_DATA} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
                 <XAxis dataKey="day" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 140]} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-                <Bar dataKey="avg" name="Avg Downloads" radius={[4, 4, 0, 0]}>
-                  {DOW_DATA.map((entry, i) => (
-                    <Cell key={i} fill={entry.day === "Wed" ? GOLD : "rgba(139,92,246,0.5)"} />
-                  ))}
-                </Bar>
-              </BarChart>
+                <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} domain={[40, 140]} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line
+                  type="monotone"
+                  dataKey="avg"
+                  name="Avg Downloads"
+                  stroke={PURPLE}
+                  strokeWidth={2.5}
+                  dot={<DowDot />}
+                  activeDot={{ r: 6, fill: PURPLE }}
+                />
+              </LineChart>
             </ResponsiveContainer>
             <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
-              Wed spike likely reflects episode release day · Mon=73 · Tue=68 · Wed=122 · Thu=68 · Fri=55 · Sat=51 · Sun=66
+              Wed spike (122) likely reflects episode release day · Mon=73 · Tue=68 · Wed=122 · Thu=68 · Fri=55 · Sat=51 · Sun=66
             </div>
           </div>
 

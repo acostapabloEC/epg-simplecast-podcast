@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import {
   AreaChart, Area,
   BarChart, Bar,
+  ComposedChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, ReferenceLine,
 } from "recharts";
 
 const PURPLE     = "#8b5cf6";
@@ -11,10 +12,30 @@ const PURPLE_DIM = "rgba(139,92,246,0.15)";
 const BLUE       = "#58a6ff";
 const GREEN      = "#3fb950";
 const GOLD       = "#c9a84c";
+const GRAY       = "#6b7280";
 const MUTED      = "#8892a4";
 const BORDER     = "rgba(255,255,255,0.07)";
 const SURFACE    = "#111827";
 const BG         = "#0a0f1e";
+
+// Day-of-week averages calculated from full Simplecast CSV (2019-06-13 → 2026-05-08)
+const DOW_DATA = [
+  { day: "Mon", avg: 73 },
+  { day: "Tue", avg: 68 },
+  { day: "Wed", avg: 122 },
+  { day: "Thu", avg: 68 },
+  { day: "Fri", avg: 55 },
+  { day: "Sat", avg: 51 },
+  { day: "Sun", avg: 66 },
+];
+
+const YOY = [
+  { month: "Jan", y2024: 2142, y2025: 1107, y2026: 1519 },
+  { month: "Feb", y2024: 1687, y2025: 859,  y2026: 1813 },
+  { month: "Mar", y2024: 1482, y2025: 1324, y2026: 1998 },
+  { month: "Apr", y2024: 1609, y2025: 1820, y2026: 1615 },
+  { month: "May", y2024: 1263, y2025: 1570, y2026: 447  },
+];
 
 function parseCSV(text) {
   const lines = text.trim().split("\n").slice(1);
@@ -42,14 +63,21 @@ function fmtMonth(ym) {
   return `${months[parseInt(m,10)-1]} '${y.slice(2)}`;
 }
 
-function KpiCard({ label, source, value, accent, large, sub }) {
+function KpiCard({ label, source, value, accent, large, sub, delta, deltaSub }) {
+  const isPos = delta && delta.startsWith("+");
   return (
     <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: accent || PURPLE, borderRadius: "12px 12px 0 0" }} />
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase", marginBottom: 8 }}>{source}</div>
       <div style={{ fontSize: 13, color: "#a0aab4", marginBottom: 6 }}>{label}</div>
       <div style={{ fontFamily: "'Playfair Display', serif", fontSize: large ? 52 : 40, fontWeight: 700, color: "#f0f6fc", lineHeight: 1, marginBottom: 8 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>{sub}</div>}
+      {delta && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: isPos ? GREEN : "#f85149" }}>{delta}</span>
+          {deltaSub && <span style={{ fontSize: 11, color: MUTED }}>{deltaSub}</span>}
+        </div>
+      )}
+      {sub && <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -131,7 +159,15 @@ export default function App() {
       .map(([ym, total]) => ({ month: fmtMonth(ym), total, ym }));
   }, [rows]);
 
-  const recentMonths = monthlyData.slice(-24);
+  // Last 24 months with 3-month rolling average
+  const recentMonths = useMemo(() => {
+    const slice = monthlyData.slice(-24);
+    return slice.map((entry, i) => {
+      if (i < 2) return { ...entry, rolling3: null };
+      const avg = Math.round((slice[i].total + slice[i - 1].total + slice[i - 2].total) / 3);
+      return { ...entry, rolling3: avg };
+    });
+  }, [monthlyData]);
 
   if (error) return (
     <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
@@ -183,8 +219,8 @@ export default function App() {
       {!stats ? <Spinner /> : (
         <div style={{ padding: "24px 28px", maxWidth: 1600, margin: "0 auto" }}>
 
-          {/* KPI ROW */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+          {/* KPI ROW — 5 cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
             <KpiCard
               source="Simplecast · All Time"
               label="Total Downloads"
@@ -211,6 +247,15 @@ export default function App() {
               value={stats.peak.total.toLocaleString()}
               accent={GOLD}
               sub={stats.peak.date}
+            />
+            <KpiCard
+              source="Simplecast · Year-over-Year"
+              label="2026 YTD (Jan–May)"
+              value="7,392"
+              accent={GREEN}
+              delta="+10.7%"
+              deltaSub="vs same period"
+              sub="vs Jan–May 2025 (6,680)"
             />
           </div>
 
@@ -261,12 +306,26 @@ export default function App() {
             </ResponsiveContainer>
           </div>
 
-          {/* MONTHLY BAR CHART */}
-          <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px" }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Monthly Downloads</div>
-            <div style={{ fontSize: 11, color: MUTED, marginBottom: 16 }}>Last 24 months · Simplecast Analytics</div>
+          {/* MONTHLY BAR + 3-MONTH ROLLING AVG */}
+          <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Monthly Downloads</div>
+                <div style={{ fontSize: 11, color: MUTED }}>Last 24 months · Simplecast Analytics</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11, color: MUTED }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 12, height: 3, background: PURPLE, borderRadius: 2 }} />
+                  Monthly
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 12, height: 2, borderTop: `2px dashed ${GOLD}` }} />
+                  3-mo avg
+                </span>
+              </div>
+            </div>
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={recentMonths} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="30%">
+              <ComposedChart data={recentMonths} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
                 <XAxis dataKey="month" tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -279,8 +338,91 @@ export default function App() {
                     />
                   ))}
                 </Bar>
+                <Line
+                  type="monotone"
+                  dataKey="rolling3"
+                  name="3-mo avg"
+                  stroke={GOLD}
+                  strokeWidth={2}
+                  strokeDasharray="5 3"
+                  dot={false}
+                  activeDot={{ r: 4, fill: GOLD }}
+                  connectNulls={false}
+                />
+                <ReferenceLine
+                  x="May '26"
+                  stroke="rgba(201,168,76,0.25)"
+                  strokeDasharray="4 3"
+                  label={{ value: "* partial", position: "top", fill: GOLD, fontSize: 9, fontFamily: "'DM Mono', monospace" }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
+              * May '26: partial month (8 days). On pace for ~1,732
+            </div>
+          </div>
+
+          {/* YOY GROUPED BAR CHART */}
+          <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through May</div>
+                <div style={{ fontSize: 11, color: MUTED }}>2024 · 2025 · 2026 · Simplecast Analytics</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11, color: MUTED }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 10, height: 10, background: GRAY, borderRadius: 2 }} />
+                  2024
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 10, height: 10, background: BLUE, borderRadius: 2 }} />
+                  2025
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 10, height: 10, background: GOLD, borderRadius: 2 }} />
+                  2026
+                </span>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={YOY} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="25%" barGap={3}>
+                <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
+                <XAxis dataKey="month" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                <Bar dataKey="y2024" name="2024" fill={GRAY} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="y2025" name="2025" fill={BLUE} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="y2026" name="2026" fill={GOLD} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
+              * May 2026 partial (8 days)
+            </div>
+          </div>
+
+          {/* DAY-OF-WEEK CHART */}
+          <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Average Downloads by Day of Week</div>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 16 }}>All-time average · Calculated from full Simplecast daily export</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={DOW_DATA} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="35%">
+                <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
+                <XAxis dataKey="day" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 140]} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                <Bar dataKey="avg" name="Avg Downloads" radius={[4, 4, 0, 0]}>
+                  {DOW_DATA.map((entry, i) => (
+                    <Cell
+                      key={i}
+                      fill={entry.day === "Wed" ? GOLD : "rgba(139,92,246,0.5)"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
+              Wed spike likely reflects episode release day · Mon=73 · Tue=68 · Wed=122 · Thu=68 · Fri=55 · Sat=51 · Sun=66
+            </div>
           </div>
 
         </div>

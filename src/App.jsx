@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  AreaChart, Area,
   BarChart, Bar,
-  ComposedChart, Line,
+  ComposedChart, Area, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, ReferenceLine,
 } from "recharts";
@@ -13,6 +12,7 @@ const BLUE       = "#58a6ff";
 const GREEN      = "#3fb950";
 const GOLD       = "#c9a84c";
 const GRAY       = "#6b7280";
+const RED        = "#f85149";
 const MUTED      = "#8892a4";
 const BORDER     = "rgba(255,255,255,0.07)";
 const SURFACE    = "#111827";
@@ -36,6 +36,8 @@ const YOY = [
   { month: "Apr", y2024: 1609, y2025: 1820, y2026: 1615 },
   { month: "May", y2024: 1263, y2025: 1570, y2026: 447  },
 ];
+
+const YOY_TOTALS = { y2024: 8183, y2025: 6680, y2026: 7392 };
 
 function parseCSV(text) {
   const lines = text.trim().split("\n").slice(1);
@@ -63,21 +65,28 @@ function fmtMonth(ym) {
   return `${months[parseInt(m,10)-1]} '${y.slice(2)}`;
 }
 
-function KpiCard({ label, source, value, accent, large, sub, delta, deltaSub }) {
-  const isPos = delta && delta.startsWith("+");
+function delta(curr, prev) {
+  if (!prev) return null;
+  const pct = ((curr - prev) / prev * 100).toFixed(1);
+  return Number(pct) >= 0 ? `+${pct}%` : `${pct}%`;
+}
+
+function KpiCard({ label, source, value, accent, large, sub, delta: d, deltaSub, extra }) {
+  const isPos = d && d.startsWith("+");
   return (
     <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: accent || PURPLE, borderRadius: "12px 12px 0 0" }} />
       <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase", marginBottom: 8 }}>{source}</div>
       <div style={{ fontSize: 13, color: "#a0aab4", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontFamily: "'Playfair Display', serif", fontSize: large ? 52 : 40, fontWeight: 700, color: "#f0f6fc", lineHeight: 1, marginBottom: 8 }}>{value}</div>
-      {delta && (
+      <div style={{ fontFamily: "'Playfair Display', serif", fontSize: large ? 48 : 36, fontWeight: 700, color: "#f0f6fc", lineHeight: 1, marginBottom: 8 }}>{value}</div>
+      {d && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600, color: isPos ? GREEN : "#f85149" }}>{delta}</span>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 600, color: isPos ? GREEN : RED }}>{d}</span>
           {deltaSub && <span style={{ fontSize: 11, color: MUTED }}>{deltaSub}</span>}
         </div>
       )}
       {sub && <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{sub}</div>}
+      {extra && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}` }}>{extra}</div>}
     </div>
   );
 }
@@ -88,9 +97,11 @@ function CustomTooltip({ active, payload, label }) {
     <div style={{ background: "#1a2235", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px" }}>
       <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>{label}</div>
       {payload.map((p, i) => (
-        <div key={i} style={{ fontSize: 13, color: p.color || PURPLE, marginBottom: 2 }}>
-          {p.name}: <strong>{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
-        </div>
+        p.value != null && (
+          <div key={i} style={{ fontSize: 13, color: p.color || PURPLE, marginBottom: 2 }}>
+            {p.name}: <strong>{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
+          </div>
+        )
       ))}
     </div>
   );
@@ -114,6 +125,79 @@ function Spinner() {
   );
 }
 
+// YoY number table replacing the grouped bar chart
+function YoyTable() {
+  const months = YOY.map(r => r.month);
+  const years  = ["y2024", "y2025", "y2026"];
+  const labels = { y2024: "2024", y2025: "2025", y2026: "2026" };
+  const colors = { y2024: GRAY, y2025: BLUE, y2026: GOLD };
+
+  const cellStyle = (val, row) => {
+    const rowVals = years.map(y => row[y] ?? 0);
+    const max = Math.max(...rowVals);
+    const isBest = val === max;
+    return {
+      fontFamily: "'DM Mono', monospace",
+      fontSize: 13,
+      fontWeight: isBest ? 700 : 400,
+      color: isBest ? "#f0f6fc" : MUTED,
+      textAlign: "right",
+      padding: "9px 16px",
+    };
+  };
+
+  const yoyPct = (curr, prev) => {
+    if (!prev) return "—";
+    const pct = ((curr - prev) / prev * 100).toFixed(1);
+    const pos = Number(pct) >= 0;
+    return <span style={{ color: pos ? GREEN : RED, fontSize: 11 }}>{pos ? "+" : ""}{pct}%</span>;
+  };
+
+  const headerCell = { fontFamily: "'DM Mono', monospace", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "8px 16px", textAlign: "right", color: MUTED };
+  const monthCell  = { fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#a0aab4", padding: "9px 16px", textAlign: "left" };
+  const dividerRow = { borderTop: `1px solid ${BORDER}` };
+
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <thead>
+        <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+          <th style={{ ...headerCell, textAlign: "left" }}>Month</th>
+          {years.map(y => (
+            <th key={y} style={{ ...headerCell, color: colors[y] }}>{labels[y]}</th>
+          ))}
+          <th style={{ ...headerCell }}>26 vs 25</th>
+        </tr>
+      </thead>
+      <tbody>
+        {YOY.map((row) => (
+          <tr key={row.month} style={{ borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+            <td style={monthCell}>{row.month}{row.month === "May" ? <sup style={{ fontSize: 9, color: MUTED, marginLeft: 2 }}>*</sup> : ""}</td>
+            {years.map(y => (
+              <td key={y} style={cellStyle(row[y] ?? 0, row)}>
+                {row[y] != null ? row[y].toLocaleString() : "—"}
+              </td>
+            ))}
+            <td style={{ ...headerCell, textAlign: "right", padding: "9px 16px" }}>
+              {yoyPct(row.y2026, row.y2025)}
+            </td>
+          </tr>
+        ))}
+        <tr style={dividerRow}>
+          <td style={{ ...monthCell, fontWeight: 600, color: "#f0f6fc", paddingTop: 12 }}>Total</td>
+          {years.map(y => (
+            <td key={y} style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 700, color: colors[y], textAlign: "right", padding: "12px 16px" }}>
+              {YOY_TOTALS[y].toLocaleString()}
+            </td>
+          ))}
+          <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, textAlign: "right", padding: "12px 16px" }}>
+            {yoyPct(YOY_TOTALS.y2026, YOY_TOTALS.y2025)}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 export default function App() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
@@ -128,23 +212,53 @@ export default function App() {
 
   const stats = useMemo(() => {
     if (!rows) return null;
-    const d30 = subDays(30);
-    const d7  = subDays(7);
+
+    const d7   = subDays(7);
+    const d14  = subDays(14);
+    const d30  = subDays(30);
+    const d60  = subDays(60);
+
     const allTotal = rows.reduce((s, r) => s + r.total, 0);
-    const total30  = rows.filter((r) => r.date >= d30).reduce((s, r) => s + r.total, 0);
-    const total7   = rows.filter((r) => r.date >= d7).reduce((s, r) => s + r.total, 0);
-    const peak     = rows.reduce((best, r) => r.total > best.total ? r : best, { total: 0, date: "" });
-    const lastDate = rows[rows.length - 1]?.date || "";
+
+    const total30 = rows.filter(r => r.date >= d30).reduce((s, r) => s + r.total, 0);
+    const prev30  = rows.filter(r => r.date >= d60 && r.date < d30).reduce((s, r) => s + r.total, 0);
+
+    const total7  = rows.filter(r => r.date >= d7).reduce((s, r) => s + r.total, 0);
+    const prev7   = rows.filter(r => r.date >= d14 && r.date < d7).reduce((s, r) => s + r.total, 0);
+
+    const peak   = rows.reduce((best, r) => r.total > best.total ? r : best, { total: 0, date: "" });
+    const bottom = rows.filter(r => r.total > 0).reduce((low, r) => r.total < low.total ? r : low, { total: Infinity, date: "" });
+
+    const lastDate  = rows[rows.length - 1]?.date || "";
     const firstDate = rows[0]?.date || "";
-    return { allTotal, total30, total7, peak, lastDate, firstDate };
+
+    return {
+      allTotal,
+      total30, prev30, delta30: delta(total30, prev30),
+      total7,  prev7,  delta7:  delta(total7, prev7),
+      peak, bottom,
+      lastDate, firstDate,
+    };
   }, [rows]);
 
+  // For the daily chart: include rolling avg when range is 30 or 90
   const chartData = useMemo(() => {
     if (!rows) return [];
-    const cutoff = subDays(range);
-    return rows
-      .filter((r) => r.date >= cutoff)
-      .map((r) => ({ date: fmtDate(r.date), downloads: r.total, rawDate: r.date }));
+
+    const rollWindow = range === 30 ? 60 : range === 90 ? 120 : null;
+    const cutoff     = range === 9999 ? "0000-00-00" : subDays(range);
+    const visible    = rows.filter(r => r.date >= cutoff);
+
+    return visible.map((r) => {
+      let rolling = null;
+      if (rollWindow) {
+        const origIdx = rows.findIndex(row => row.date === r.date);
+        const start   = Math.max(0, origIdx - rollWindow + 1);
+        const win     = rows.slice(start, origIdx + 1);
+        rolling = Math.round(win.reduce((s, w) => s + w.total, 0) / win.length);
+      }
+      return { date: fmtDate(r.date), downloads: r.total, rolling };
+    });
   }, [rows, range]);
 
   const monthlyData = useMemo(() => {
@@ -159,7 +273,6 @@ export default function App() {
       .map(([ym, total]) => ({ month: fmtMonth(ym), total, ym }));
   }, [rows]);
 
-  // Last 24 months with 3-month rolling average
   const recentMonths = useMemo(() => {
     const slice = monthlyData.slice(-24);
     return slice.map((entry, i) => {
@@ -169,10 +282,13 @@ export default function App() {
     });
   }, [monthlyData]);
 
+  const showRolling = range === 30 || range === 90;
+  const rollLabel   = range === 30 ? "60d avg" : "120d avg";
+
   if (error) return (
     <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "32px 40px", textAlign: "center" }}>
-        <div style={{ fontSize: 14, color: "#f85149", marginBottom: 8 }}>Failed to load analytics data</div>
+        <div style={{ fontSize: 14, color: RED, marginBottom: 8 }}>Failed to load analytics data</div>
         <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: MUTED }}>{error}</div>
       </div>
     </div>
@@ -234,19 +350,32 @@ export default function App() {
               label="Downloads (30d)"
               value={stats.total30.toLocaleString()}
               accent={PURPLE}
+              delta={stats.delta30}
+              deltaSub="vs prior 30d"
+              sub={`Prior period: ${stats.prev30.toLocaleString()}`}
             />
             <KpiCard
               source="Simplecast · Last 7 Days"
               label="Downloads (7d)"
               value={stats.total7.toLocaleString()}
               accent={BLUE}
+              delta={stats.delta7}
+              deltaSub="vs prior 7d"
+              sub={`Prior period: ${stats.prev7.toLocaleString()}`}
             />
             <KpiCard
-              source={`Simplecast · Peak Day ${stats.peak.date}`}
-              label="Single-Day Record"
+              source="Simplecast · Single Day"
+              label="Peak Day"
               value={stats.peak.total.toLocaleString()}
               accent={GOLD}
               sub={stats.peak.date}
+              extra={
+                <div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 1, color: MUTED, textTransform: "uppercase", marginBottom: 4 }}>Bottom Day</div>
+                  <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: MUTED, lineHeight: 1, marginBottom: 3 }}>{stats.bottom.total.toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: MUTED }}>{stats.bottom.date}</div>
+                </div>
+              }
             />
             <KpiCard
               source="Simplecast · Year-over-Year"
@@ -259,12 +388,20 @@ export default function App() {
             />
           </div>
 
-          {/* DAILY CHART */}
+          {/* DAILY CHART — ComposedChart with optional rolling avg */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Daily Downloads — Advisor Talk</div>
-                <div style={{ fontSize: 11, color: MUTED }}>Simplecast Analytics · {range === 9999 ? "All time" : `Last ${range} days`}</div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 24 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Daily Downloads — Advisor Talk</div>
+                  <div style={{ fontSize: 11, color: MUTED }}>Simplecast Analytics · {range === 9999 ? "All time" : `Last ${range} days`}</div>
+                </div>
+                {showRolling && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, fontSize: 11, color: MUTED }}>
+                    <span style={{ display: "inline-block", width: 20, height: 2, borderTop: `2px dashed ${GOLD}` }} />
+                    {rollLabel} rolling avg
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {[30, 90, 365, 9999].map((r) => (
@@ -275,7 +412,7 @@ export default function App() {
               </div>
             </div>
             <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="dlGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PURPLE} stopOpacity={0.25} />
@@ -302,7 +439,20 @@ export default function App() {
                   dot={false}
                   activeDot={{ r: 5, fill: PURPLE }}
                 />
-              </AreaChart>
+                {showRolling && (
+                  <Line
+                    type="monotone"
+                    dataKey="rolling"
+                    name={rollLabel}
+                    stroke={GOLD}
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                    activeDot={{ r: 4, fill: GOLD }}
+                    connectNulls={false}
+                  />
+                )}
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 
@@ -319,7 +469,7 @@ export default function App() {
                   Monthly
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-block", width: 12, height: 2, borderTop: `2px dashed ${GOLD}` }} />
+                  <span style={{ display: "inline-block", width: 20, height: 2, borderTop: `2px dashed ${GOLD}` }} />
                   3-mo avg
                 </span>
               </div>
@@ -362,41 +512,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* YOY GROUPED BAR CHART */}
+          {/* YOY NUMBER TABLE */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through May</div>
-                <div style={{ fontSize: 11, color: MUTED }}>2024 · 2025 · 2026 · Simplecast Analytics</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11, color: MUTED }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-block", width: 10, height: 10, background: GRAY, borderRadius: 2 }} />
-                  2024
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-block", width: 10, height: 10, background: BLUE, borderRadius: 2 }} />
-                  2025
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-block", width: 10, height: 10, background: GOLD, borderRadius: 2 }} />
-                  2026
-                </span>
-              </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through May</div>
+              <div style={{ fontSize: 11, color: MUTED }}>2024 · 2025 · 2026 · Simplecast Analytics</div>
             </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={YOY} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="25%" barGap={3}>
-                <CartesianGrid strokeDasharray="3 3" stroke={BORDER} vertical={false} />
-                <XAxis dataKey="month" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: MUTED, fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-                <Bar dataKey="y2024" name="2024" fill={GRAY} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="y2025" name="2025" fill={BLUE} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="y2026" name="2026" fill={GOLD} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-            <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
-              * May 2026 partial (8 days)
+            <YoyTable />
+            <div style={{ marginTop: 12, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
+              * May 2026 partial (8 days) · Bold = highest for that month
             </div>
           </div>
 
@@ -412,10 +536,7 @@ export default function App() {
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
                 <Bar dataKey="avg" name="Avg Downloads" radius={[4, 4, 0, 0]}>
                   {DOW_DATA.map((entry, i) => (
-                    <Cell
-                      key={i}
-                      fill={entry.day === "Wed" ? GOLD : "rgba(139,92,246,0.5)"}
-                    />
+                    <Cell key={i} fill={entry.day === "Wed" ? GOLD : "rgba(139,92,246,0.5)"} />
                   ))}
                 </Bar>
               </BarChart>

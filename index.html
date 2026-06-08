@@ -11,22 +11,48 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-  
+
   <!-- Elite Tracker -->
   <script>
-  (function(){
-    var WEBHOOK = 'https://default0de46722b9794e2ba8aa8900bae0ac.3c.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/682610202cb74ed49894efdb5d3fca40/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=gYRIhSNUoh8opZAKusYaAcVVeSbdV1HgrbaveeqOzMc';
-    var DASHBOARD = 'Simplecast Podcast';
-    function sendCard(link, geo) {
+  (function() {
+    var WH = "https://default0de46722b9794e2ba8aa8900bae0ac.3c.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/682610202cb74ed49894efdb5d3fca40/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=gYRIhSNUoh8opZAKusYaAcVVeSbdV1HgrbaveeqOzMc";
+    var DN = "Simplecast Podcast";
+    function send(geo) {
       var ua = navigator.userAgent;
-      var browser = /Chrome/.test(ua)?'Chrome':/Firefox/.test(ua)?'Firefox':/Safari/.test(ua)?'Safari':/Edge/.test(ua)?'Edge':'Unknown';
-      var device = /Mobile|Android|iPhone|iPad/.test(ua)?'Mobile':'Desktop';
-      var os = /Windows/.test(ua)?'Windows':/Mac/.test(ua)?'Mac':/Android/.test(ua)?'Android':/iPhone|iPad/.test(ua)?'iOS':'Other';
-      var payload = {type:'message',attachments:[{contentType:'application/vnd.microsoft.card.adaptive',content:{type:'AdaptiveCard',version:'1.4',body:[{type:'TextBlock',text:'📊 ' + DASHBOARD + ' — Visit',weight:'Bolder',size:'Medium',color:'Accent'},{type:'FactSet',facts:[{title:'🔗 Dashboard',value:DASHBOARD},{title:'🕐 Time',value:new Date().toLocaleString('en-US',{timeZone:'America/New_York',dateStyle:'medium',timeStyle:'short'})},{title:'📍 Location',value:geo?geo.city+', '+geo.region+' — '+geo.org:'Unknown'},{title:'🌐 IP',value:geo?geo.ip:'Unknown'},{title:'💻 Device',value:browser+' on '+os+' ('+device+')'},{title:'↩️ Referrer',value:document.referrer?(new URL(document.referrer)).hostname:'Direct'}]}]}}]}};
-      fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(function(){});
+      var br = /Chrome/.test(ua) ? "Chrome" : /Firefox/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "Other";
+      var dv = /Mobile|Android|iPhone|iPad/.test(ua) ? "Mobile" : "Desktop";
+      var os = /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : "Other";
+      var ref = document.referrer ? new URL(document.referrer).hostname : "Direct";
+      var time = new Date().toLocaleString("en-US", {timeZone:"America/New_York",dateStyle:"medium",timeStyle:"short"});
+      var loc = geo ? (geo.city + ", " + geo.region + " - " + geo.org) : "Unknown";
+      var ip = geo ? geo.ip : "Unknown";
+      var card = {
+        type: "message",
+        attachments: [{
+          contentType: "application/vnd.microsoft.card.adaptive",
+          content: {
+            type: "AdaptiveCard", version: "1.4",
+            body: [
+              { type: "TextBlock", text: "[VISIT] " + DN, weight: "Bolder", size: "Medium", color: "Accent" },
+              { type: "FactSet", facts: [
+                { title: "Dashboard", value: DN },
+                { title: "Time",      value: time },
+                { title: "Location",  value: loc },
+                { title: "IP",        value: ip },
+                { title: "Device",    value: br + " on " + os + " (" + dv + ")" },
+                { title: "Referrer",  value: ref }
+              ]}
+            ]
+          }
+        }]
+      };
+      fetch(WH, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(card)}).catch(function(){});
     }
-    window.addEventListener('load',function(){
-      fetch('https://ipapi.co/json/').then(function(r){return r.json()}).then(function(geo){sendCard(DASHBOARD,geo)}).catch(function(){sendCard(DASHBOARD,null)});
+    window.addEventListener("load", function() {
+      fetch("https://ipapi.co/json/")
+        .then(function(r) { return r.json(); })
+        .then(function(geo) { send(geo); })
+        .catch(function() { send(null); });
     });
   })();
   </script>

@@ -4,7 +4,7 @@ import {
   BarChart, Bar,
   ComposedChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, ReferenceLine,
+  ResponsiveContainer, Cell,
 } from "recharts";
 
 const PURPLE     = "#8b5cf6";
@@ -36,10 +36,12 @@ const YOY = [
   { month: "Feb", y2024: 1687, y2025: 859,  y2026: 1813 },
   { month: "Mar", y2024: 1482, y2025: 1324, y2026: 1998 },
   { month: "Apr", y2024: 1609, y2025: 1820, y2026: 1615 },
-  { month: "May", y2024: 1263, y2025: 1570, y2026: 447  },
+  { month: "May", y2024: 1263, y2025: 1570, y2026: 1925 },
+  { month: "Jun", y2024: 1692, y2025: 1627, y2026: 2206 },
+  { month: "Jul", y2024: 2193, y2025: 1285, y2026: 2252 },
 ];
 
-const YOY_TOTALS = { y2024: 8183, y2025: 6680, y2026: 7392 };
+const YOY_TOTALS = { y2024: 12068, y2025: 9592, y2026: 13328 };
 
 function parseCSV(text) {
   const lines = text.trim().split("\n").slice(1);
@@ -94,19 +96,18 @@ function KpiCard({ label, source, value, accent, large, sub, delta, deltaSub, ex
   );
 }
 
-// ── YoY month cards (5 cards, Jan–May) ───────────────────────────────────────
+// ── YoY month cards (7 cards, Jan–Jul) ───────────────────────────────────────
 function YoyCards() {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 14 }}>
       {YOY.map((row) => {
-        const isPartial = row.month === "May";
         const d = calcDelta(row.y2026, row.y2025);
         const isPos = d && d.startsWith("+");
         return (
           <div key={row.month} style={{ background: "#0d1424", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "18px 20px", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: GOLD, borderRadius: "12px 12px 0 0" }} />
             <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase", marginBottom: 6 }}>
-              {row.month}{isPartial ? <sup style={{ fontSize: 8, marginLeft: 2 }}>*</sup> : ""}
+              {row.month}
             </div>
             <div style={{ fontSize: 11, color: "#a0aab4", marginBottom: 6 }}>2026</div>
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 38, fontWeight: 700, color: GOLD, lineHeight: 1, marginBottom: 8 }}>
@@ -193,10 +194,10 @@ export default function App() {
 
   const stats = useMemo(() => {
     if (!rows) return null;
-    const d7  = subDays(7);
-    const d14 = subDays(14);
-    const d30 = subDays(30);
-    const d60 = subDays(60);
+    const d7  = subDays(6);   // 7 days inclusive of today (matches Simplecast UI)
+    const d14 = subDays(13);  // prior 7-day window
+    const d30 = subDays(29);
+    const d60 = subDays(59);
 
     const allTotal = rows.reduce((s, r) => s + r.total, 0);
     const total30  = rows.filter(r => r.date >= d30).reduce((s, r) => s + r.total, 0);
@@ -364,12 +365,12 @@ export default function App() {
             />
             <KpiCard
               source="Simplecast · Year-over-Year"
-              label="2026 YTD (Jan–May)"
-              value="7,392"
+              label="2026 YTD (Jan–Jul)"
+              value="13,328"
               accent={GREEN}
-              delta="+10.7%"
-              deltaSub="vs same period"
-              sub="vs Jan–May 2025 (6,680)"
+              delta="+39.0%"
+              deltaSub="vs Jan–Jul 2025"
+              sub="vs Jan–Jul 2025 (9,592)"
             />
           </div>
 
@@ -485,30 +486,18 @@ export default function App() {
                   activeDot={{ r: 4, fill: GOLD }}
                   connectNulls={false}
                 />
-                <ReferenceLine
-                  x="May '26"
-                  stroke="rgba(201,168,76,0.25)"
-                  strokeDasharray="4 3"
-                  label={{ value: "* partial", position: "top", fill: GOLD, fontSize: 9, fontFamily: "'DM Mono', monospace" }}
-                />
               </ComposedChart>
             </ResponsiveContainer>
-            <div style={{ marginTop: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
-              * May '26: partial month (8 days). On pace for ~1,732
-            </div>
           </div>
 
           {/* YOY — KPI-style month cards */}
           <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 24px", marginBottom: 14 }}>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through May</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Year-over-Year — Jan through Jul</div>
               <div style={{ fontSize: 11, color: MUTED }}>2024 · 2025 · 2026 · Simplecast Analytics</div>
             </div>
             <YoyCards />
-            <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: MUTED }}>
-                * May 2026 partial (8 days)
-              </div>
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
               <div style={{ display: "flex", gap: 20, fontFamily: "'DM Mono', monospace", fontSize: 10 }}>
                 <span style={{ color: GRAY }}>2024 total: {YOY_TOTALS.y2024.toLocaleString()}</span>
                 <span style={{ color: BLUE }}>2025 total: {YOY_TOTALS.y2025.toLocaleString()}</span>

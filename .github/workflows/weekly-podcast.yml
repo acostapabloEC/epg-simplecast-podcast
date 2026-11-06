@@ -1,0 +1,88 @@
+name: Weekly podcast update
+
+# Replaces the laptop-based Claude scheduled task `epg-podcast-weekly-update`.
+# Pull Simplecast -> build check -> commit CSV -> push (Vercel auto-deploys) -> verify -> email.
+on:
+  schedule:
+    - cron: '0 11 * * 1' # Mondays 11:00 UTC (8:00am Argentina)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-podcast
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      SITE: https://epg-simplecast-podcast.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Pull Simplecast data
+        id: pull
+        env:
+          SIMPLECAST_API_KEY: ${{ secrets.SIMPLECAST_API_KEY }}
+        run: node scripts/pull_downloads.mjs
+
+      - name: Build check
+        if: steps.pull.outputs.rowsAdded != '0'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit and push
+        id: push
+        if: steps.pull.outputs.rowsAdded != '0'
+        run: |
+          git config user.name "Pablo Acosta"
+          git config user.email "pabloacosta@eliteconsultingpartners.com"
+          git add public/data/downloads.csv
+          git commit -m "Update podcast downloads: ${{ steps.pull.outputs.firstDate }}-${{ steps.pull.outputs.lastDate }} (${{ steps.pull.outputs.totalDownloads }} downloads)"
+          git push
+
+      - name: Verify deploy is live
+        id: verify
+        if: steps.push.outcome == 'success'
+        run: |
+          want="${{ steps.pull.outputs.lastDate }}"
+          for i in $(seq 1 12); do
+            sleep 20
+            last=$(curl -fsS "$SITE/data/downloads.csv?t=$(date +%s)" | tail -n 1 | cut -d, -f3)
+            echo "attempt $i: live CSV last date = $last (want $want)"
+            [ "$last" = "$want" ] && exit 0
+          done
+          echo "Deploy not verified after 4 minutes" >&2
+          exit 1
+
+      - name: Notify Pablo
+        if: always()
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          npm install --no-save nodemailer@6 >/dev/null 2>&1
+          status="${{ steps.pull.outputs.status }}"
+          if [ "${{ job.status }}" != "success" ]; then
+            subject="Podcast weekly update FAILED"
+            body="A step failed. Pull: ${{ steps.pull.outcome }}, build: ${{ steps.pull.outcome == 'success' && 'see run' || 'skipped' }}, push: ${{ steps.push.outcome }}, verify: ${{ steps.verify.outcome }}. Details: $RUN_URL"
+          elif [ "$status" = "appended" ]; then
+            subject="Podcast weekly update - ${{ steps.pull.outputs.firstDate }} to ${{ steps.pull.outputs.lastDate }}"
+            body="Added ${{ steps.pull.outputs.rowsAdded }} day(s), ${{ steps.pull.outputs.totalDownloads }} downloads. Live: $SITE (verified). Simplecast usually lags 1-2 days; the rest catches up next run. Run: $RUN_URL"
+          else
+            subject="Podcast weekly update - nothing new"
+            body="Simplecast has no new days beyond ${{ steps.pull.outputs.lastDate }}. Run: $RUN_URL"
+          fi
+          node scripts/notify.mjs "$subject" "$body"
